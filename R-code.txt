@@ -1,0 +1,729 @@
+#inc_data <- read.csv('/content/analytic_df.csv')
+
+data <- read.csv('/content/your_dataframe.csv')
+
+
+# Assuming 'data' is your dataframe
+head(data)
+
+
+install.packages("plm")
+install.packages("lmtest")
+install.packages("stargazer")
+
+
+#Calculate elasticity
+
+# Load necessary libraries
+library(plm)
+library(lmtest)
+library(stargazer)
+
+# Assuming your data is in a dataframe named 'data'
+# with columns: State_Tax, Consumption_per_capita, State, Year
+
+# 1. Log Transformations
+data$log_State_Tax <- log(data$State_Tax)
+data$log_Consumption_per_capita <- log(data$Consumption_per_capita)
+
+# 2. Fixed Effects Model
+model <- plm(log_Consumption_per_capita ~ log_State_Tax,
+             data = data,
+             index = c("State", "Year"),
+             model = "within")
+
+# 3. Summary and Interpretation
+summary(model)
+coeftest(model, vcov = vcovHC(model, type = "HC1")) # Robust standard errors
+
+# Create a beautiful table for your results
+stargazer(model, type = "text",
+          title = "Elasticity of Consumption to State Tax with Fixed Effects",
+          dep.var.labels = "Log Consumption per Capita",
+          covariate.labels = "Log State Tax",
+          digits = 3,
+          star.cutoffs = c(0.05, 0.01, 0.001),
+          notes = "Robust standard errors in parentheses.")
+
+
+# Install and load the dplyr package if not already installed
+#install.packages("dplyr")
+library(dplyr)
+
+# Assuming 'data' is your main dataset
+# Create the Group variable and assign "High E-High D" to the specified states
+# Assuming 'data' is your main dataset
+# Create or modify the Group variable and assign values based on the specified states
+
+data <- data %>%
+  mutate(Group = case_when(
+    State %in% c("Arizona", "California", "Connecticut", "District of Columbia",
+                 "Illinois", "Maryland", "Massachusetts", "Minnesota",
+                 "Nevada", "New Jersey", "New York", "Rhode Island",
+                 "Utah", "Vermont", "Washington") ~ "High E-High D",
+    State %in% c("Colorado", "Florida", "Georgia", "Idaho", "Kansas",
+                 "Missouri", "Nebraska", "New Mexico", "Oregon", "Texas") ~ "Low E-High D",
+    TRUE ~ NA_character_  # Set NA for other states if Group doesn't already exist
+  ))
+
+# View the updated dataset
+
+# Install and load the dplyr package if not already installed
+#install.packages("dplyr")
+library(dplyr)
+
+# Assuming 'data' is your main dataset
+# Create or modify the Group variable and assign values based on the specified states
+data <- data %>%
+  mutate(Group = case_when(
+    State %in% c("Arizona", "California", "Connecticut", "District of Columbia",
+                 "Illinois", "Maryland", "Massachusetts", "Minnesota",
+                 "Nevada", "New Jersey", "New York", "Rhode Island",
+                 "Utah", "Vermont", "Washington") ~ "High E-High D",
+    State %in% c("Alaska", "Delaware", "Hawaii", "Maine", "Michigan",
+                 "Montana", "New Hampshire", "Oklahoma", "Pennsylvania",
+                 "Wisconsin") ~ "High E-Low D",
+    State %in% c("Alabama", "Arkansas", "Indiana", "Iowa", "Kentucky",
+                 "Louisiana", "Mississippi", "North Carolina", "North Dakota",
+                 "Ohio", "South Carolina", "South Dakota", "Tennessee",
+                 "Virginia", "West Virginia", "Wyoming") ~ "Low E-Low D",
+    TRUE ~ Group  # Retain existing Group values for other states or assign NA if Group is new
+  ))
+
+# Tabulate the number of observations in each Group
+
+head(data)
+
+group_summary <- data %>%
+  count(Group)
+
+# View the summary
+print(group_summary)
+
+
+
+#Begin test of period-elasticities by state group
+
+# Load necessary libraries
+#install.packages(c("plm", "lmtest", "stargazer"))
+library(plm)
+library(lmtest)
+library(stargazer)
+
+# Assuming your data is in a dataframe named 'data'
+# with columns: State_Tax, Consumption_per_capita, State, Year, Group
+
+# Get unique groups
+unique_groups <- unique(data$Group)
+
+# Initialize a list to store models for each group
+group_models <- list()
+
+# Loop over each group
+for(group in unique_groups) {
+  # Subset the data for the group
+  group_data <- subset(data, Group == group)
+
+  # Initialize a list to store models for each five-year period within the group
+  models <- list()
+
+  # Loop over each five-year period
+  for(start_year in seq(1970, 2015, by = 5)) {
+    end_year <- start_year + 4
+
+    # Subset the data for the five-year period
+    period_data <- subset(group_data, Year >= start_year & Year <= end_year)
+
+    # Log Transformations
+    period_data$log_State_Tax <- log(period_data$State_Tax)
+    period_data$log_Consumption_per_capita <- log(period_data$Consumption_per_capita)
+
+    # Fixed Effects Model
+    model <- plm(log_Consumption_per_capita ~ log_State_Tax,
+                 data = period_data,
+                 index = c("State", "Year"),
+                 model = "within")
+
+    # Store the model in the list
+    models[[paste(start_year, end_year, sep = "-")]] <- model
+  }
+
+  # Store models for the current group
+  group_models[[group]] <- models
+
+  # Summarize and interpret each model for the current group
+  for(period in names(models)) {
+    cat("\nGroup:", group, "\nPeriod:", period, "\n")
+    model <- models[[period]]
+    print(summary(model))
+    print(coeftest(model, vcov = vcovHC(model, type = "HC1"))) # Robust standard errors
+
+    # Create a beautiful table for your results
+    stargazer(model, type = "text",
+              title = paste("Elasticity of Consumption to State Tax with Fixed Effects:", period, "Group:", group),
+              dep.var.labels = "Log Consumption per Capita",
+              covariate.labels = "Log State Tax",
+              digits = 3,
+              star.cutoffs = c(0.05, 0.01, 0.001),
+              notes = "Robust standard errors in parentheses.")
+  }
+}
+
+# Initialize a dataframe to store the elasticity estimates
+elasticity_estimates <- data.frame(Group = character(),
+                                   Period = character(),
+                                   Elasticity = numeric(),
+                                   Lower_CI = numeric(),
+                                   Upper_CI = numeric(),
+                                   stringsAsFactors = FALSE)
+
+# Loop over each group and each model to extract the elasticity estimate and confidence intervals
+for(group in names(group_models)) {
+  models <- group_models[[group]]
+  for(period in names(models)) {
+    model <- models[[period]]
+    elasticity <- coef(summary(model))["log_State_Tax", "Estimate"]
+    ci <- confint(model, level = 0.95)["log_State_Tax", ]  # Get 95% confidence intervals
+
+    # Append the group, period, elasticity, and confidence intervals to the dataframe
+    elasticity_estimates <- rbind(elasticity_estimates,
+                                  data.frame(Group = group,
+                                             Period = period,
+                                             Elasticity = elasticity,
+                                             Lower_CI = ci[1],
+                                             Upper_CI = ci[2]))
+  }
+}
+
+# Now 'elasticity_estimates' contains the elasticity and confidence intervals for each period and group
+print(elasticity_estimates)
+
+
+# Save the elasticity estimates to a CSV file
+write.csv(elasticity_estimates, "elasticity_estimates.csv", row.names = FALSE)
+
+# Provide instructions to download the file (specific to your R environment)
+#cat("\nThe elasticity estimates have been saved to 'elasticity_estimates.csv'.\n")
+
+# Re-run elasticities for period and state, separately
+library(plm)
+library(lmtest)
+library(stargazer)
+
+# Assuming your data is in a dataframe named 'data'
+# with columns: State_Tax, Consumption_per_capita, State, Year
+
+# Initialize a list to store models
+models <- list()
+
+# Loop over each five-year period
+for(start_year in seq(1970, 2015, by = 5)) {
+  end_year <- start_year + 4
+
+  # Subset the data for the five-year period
+  period_data <- subset(data, Year >= start_year & Year <= end_year)
+
+  # Log Transformations
+  period_data$log_State_Tax <- log(period_data$State_Tax)
+  period_data$log_Consumption_per_capita <- log(period_data$Consumption_per_capita)
+
+  # Fixed Effects Model
+  model <- plm(log_Consumption_per_capita ~ log_State_Tax,
+               data = period_data,
+               index = c("State", "Year"),
+               model = "within")
+
+  # Store the model in the list
+  models[[paste(start_year, end_year, sep = "-")]] <- model
+}
+
+# Now you can summarize and interpret each model
+for(period in names(models)) {
+  cat("\nPeriod:", period, "\n")
+  model <- models[[period]]
+  summary(model)
+  coeftest(model, vcov = vcovHC(model, type = "HC1")) # Robust standard errors
+
+  # Create a beautiful table for your results
+  stargazer(model, type = "text",
+            title = paste("Elasticity of Consumption to State Tax with Fixed Effects:", period),
+            dep.var.labels = "Log Consumption per Capita",
+            covariate.labels = "Log State Tax",
+            digits = 3,
+            star.cutoffs = c(0.05, 0.01, 0.001),
+            notes = "Robust standard errors in parentheses.")
+}
+
+
+#install.packages("ggplot2")
+library(ggplot2)
+
+
+# Assuming 'models' is your list of plm models
+# Initialize an empty dataframe to store the results
+elasticity_estimates <- data.frame(Period = character(), Elasticity = numeric(), stringsAsFactors = FALSE)
+
+# Loop over each model and extract the elasticity estimate
+for(period in names(models)) {
+  model <- models[[period]]
+  elasticity <- coef(summary(model))["log_State_Tax", "Estimate"]
+  # Append the period and elasticity to the dataframe
+  elasticity_estimates <- rbind(elasticity_estimates, data.frame(Period = period, Elasticity = elasticity))
+}
+
+# Now 'elasticity_estimates' contains the elasticity for each period
+print(elasticity_estimates)
+
+
+# Assuming 'models' is your list of plm models
+# Initialize an empty dataframe to store the results
+elasticity_estimates <- data.frame(Period = character(),
+                                   Elasticity = numeric(),
+                                   Lower_CI = numeric(),
+                                   Upper_CI = numeric(),
+                                   stringsAsFactors = FALSE)
+
+# Loop over each model and extract the elasticity estimate and confidence intervals
+for(period in names(models)) {
+  model <- models[[period]]
+  elasticity <- coef(summary(model))["log_State_Tax", "Estimate"]
+  ci <- confint(model, level = 0.95)["log_State_Tax", ]  # Get 95% confidence intervals
+
+  # Append the period, elasticity, and confidence intervals to the dataframe
+  elasticity_estimates <- rbind(elasticity_estimates,
+                                data.frame(Period = period,
+                                           Elasticity = elasticity,
+                                           Lower_CI = ci[1],
+                                           Upper_CI = ci[2]))
+}
+
+# Now 'elasticity_estimates' contains the elasticity and confidence intervals for each period
+print(elasticity_estimates)
+
+
+# Assuming 'elasticity_estimates' has columns 'Period' and 'Elasticity'
+ggplot(elasticity_estimates, aes(x = Period, y = Elasticity)) +
+  geom_line() + # This adds a line to connect the points
+  geom_point() + # This adds points for each estimate
+  labs(title = "Elasticity Estimates Over Time",
+       x = "",
+       y = "Elasticity") +
+  theme_minimal() # This sets a minimal theme for the plot
+
+
+# Assuming 'elasticity_estimates' has columns 'Period', 'Elasticity', 'Lower_CI', and 'Upper_CI'
+ggplot(elasticity_estimates, aes(x = Period, y = Elasticity)) +
+  geom_line() + # This adds a line to connect the points
+  geom_point() + # This adds points for each estimate
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) + # This adds the error bars
+  labs(title = "Elasticity Estimates Over Time",
+       x = "",
+       y = "Elasticity") +
+  theme_minimal() # This sets a minimal theme for the plot
+
+
+# Load necessary libraries
+library(plm)
+library(lmtest)
+library(stargazer)
+
+# Assuming your data is in a dataframe named 'data'
+# with columns: State_Tax, Consumption_per_capita, State, Year
+
+# Initialize an empty dataframe to store the results
+elasticity_estimates <- data.frame(State = character(),
+                                   Elasticity = numeric(),
+                                   Lower_CI = numeric(),
+                                   Upper_CI = numeric(),
+                                   stringsAsFactors = FALSE)
+
+# Get the unique states
+unique_states <- unique(data$State)
+
+# Loop over each state
+for(state in unique_states) {
+  # Subset the data for the current state
+  state_data <- subset(data, State == state)
+
+  # Log Transformations
+  state_data$log_State_Tax <- log(state_data$State_Tax)
+  state_data$log_Consumption_per_capita <- log(state_data$Consumption_per_capita)
+
+  # Fixed Effects Model
+  model <- plm(log_Consumption_per_capita ~ log_State_Tax,
+               data = state_data,
+               index = c("State", "Year"),
+               model = "within")
+
+  # Summary and Interpretation
+  summary(model)
+  coeftest(model, vcov = vcovHC(model, type = "HC1")) # Robust standard errors
+
+  # Extract the elasticity estimate and confidence intervals
+  elasticity <- coef(summary(model))["log_State_Tax", "Estimate"]
+  ci <- confint(model, level = 0.95)["log_State_Tax", ]  # Get 95% confidence intervals
+
+  # Append the state, elasticity, and confidence intervals to the dataframe
+  elasticity_estimates <- rbind(elasticity_estimates,
+                                data.frame(State = state,
+                                           Elasticity = elasticity,
+                                           Lower_CI = ci[1],
+                                           Upper_CI = ci[2]))
+}
+
+# Now 'elasticity_estimates' contains the elasticity and confidence intervals for each state
+print(elasticity_estimates)
+
+
+# Assuming 'elasticity_estimates' is your dataframe with columns: 'State', 'Elasticity', 'Lower_CI', 'Upper_CI'
+
+# Order the dataframe by the 'Elasticity' column
+elasticities_table <- elasticity_estimates[order(elasticity_estimates$Elasticity), ]
+
+# Print the ordered table
+print(elasticities_table)
+
+
+# Assuming 'elasticities_table' has columns 'State', 'Elasticity', 'Lower_CI', and 'Upper_CI'
+library(ggplot2)
+
+ggplot(elasticities_table, aes(x = State, y = Elasticity)) +
+  geom_point() + # This adds points for each state's elasticity estimate
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) + # This adds the error bars
+  labs(title = "Elasticity Estimates by State",
+       x = "State",
+       y = "Elasticity") +
+  theme_minimal() + # This sets a minimal theme for the plot
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) # This rotates the x-axis labels for readability
+
+
+# Assuming 'elasticities_table' is your dataframe with columns: 'State', 'Elasticity', 'Lower_CI', 'Upper_CI'
+
+# Sort the dataframe by the 'Elasticity' column in descending order to see the highest elasticity first
+elasticities_table <- elasticities_table[order(-elasticities_table$Elasticity), ]
+
+# Print the sorted table
+print(elasticities_table)
+
+
+library(ggplot2)
+
+# Plot the sorted elasticities with confidence intervals
+ggplot(elasticities_table, aes(x = reorder(State, -Elasticity), y = Elasticity)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) +
+  labs(title = "Sorted Elasticity Estimates by State",
+       x = "State",
+       y = "Elasticity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+library(ggplot2)
+
+# Plot the sorted elasticities with confidence intervals
+ggplot(elasticities_table, aes(x = reorder(State, -Elasticity), y = Elasticity)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) +
+  labs(title = "Sorted Elasticity Estimates by State",
+       x = "State",
+       y = "Elasticity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylim(-1, 0) # Set the limits of the y-axis
+
+
+library("dplyr")
+
+#Begin regression models for elasticity-tax group and cancer incidence
+data <- read.csv('/content/for_r_df.csv')
+
+# Create the new variable G1
+data <- data %>%
+  mutate(G_HELD = ifelse(Group == "High E-Low D", 1, 0))
+
+  # Create the new variable G2
+data <- data %>%
+  mutate(G_LEHD = ifelse(Group == "Low E-High D", 1, 0))
+
+  # Create the new variable G3
+data <- data %>%
+  mutate(G_LELD = ifelse(Group == "Low E-Low D", 1, 0))
+head(data)
+
+
+install.packages("plm")
+library(plm)
+# Install and load the broom package if not already installed
+install.packages("broom")
+library(broom)
+
+
+# Subsetting the data
+subset_data <- data[data$Sex == "Male", ]
+
+# Load necessary libraries
+library(plm)
+library(lmtest)
+
+# Fit the panel model
+model <- plm(Rate ~ G_HELD + G_LEHD + G_LELD + factor(State) + factor(Year) + UE, data = subset_data, effect="individual", model="within")
+
+
+# Get robust coefficients and standard errors
+coeftest_results <- coeftest(model, vcov = vcovHC, type = "HC3")
+
+# Extract coefficients and standard errors
+coef_estimates <- coeftest_results[, "Estimate"]
+robust_std_errors <- coeftest_results[, "Std. Error"]
+
+# Calculate confidence intervals
+alpha <- 0.05  # significance level for 95% confidence intervals
+z_value <- qnorm(1 - alpha / 2)  # critical value for normal distribution
+
+conf_lower <- coef_estimates - z_value * robust_std_errors
+conf_upper <- coef_estimates + z_value * robust_std_errors
+
+# Combine results into a data frame
+results <- data.frame(
+  Estimate = coef_estimates,
+  `Std. Error` = robust_std_errors,
+  `CI Lower` = conf_lower,
+  `CI Upper` = conf_upper
+)
+
+# Print results
+print(results)
+
+
+# Assuming 'data' is your main dataset
+unique_types <- unique(data$Type)
+
+# Loop over unique values in the Type column
+for (type_value in unique_types) {
+
+  # Subsetting the data
+  subset_data <- data[data$Sex == "Male" & data$Type == type_value, ]
+
+  # Check if the subset data is not empty
+  if (nrow(subset_data) > 0) {
+
+    # Running the model with the subsetted data
+  model <- plm(Rate ~ G_HELD + G_LEHD + G_LELD + factor(State) + factor(Year) + UE, data = subset_data, effect="individual", model="within")
+
+    # Getting the tidy summary with confidence intervals
+    summary_table <- tidy(model, conf.int = TRUE)
+
+    # Filter to keep only coefficients from the Group factor variable
+  group_coefficients <- summary_table[grep("G_HELD|G_LEHD|G_LELD", summary_table$term), ]
+
+    # Display the filtered summary table
+    cat("\nType:", type_value, "\n")
+    print(group_coefficients)
+  } else {
+    cat("\nType:", type_value, " - No data available for this type.\n")
+  }
+}
+
+
+install.packages("car")
+library(car)
+
+
+# Assuming 'data' is your main dataset
+unique_types <- unique(data$Type)
+
+# Loop over unique values in the Type column
+for (type_value in unique_types) {
+
+  # Subsetting the data
+  subset_data <- data[data$Sex == "Male" & data$Type == type_value, ]
+
+    # Running the model with the subsetted data
+# Fit the linear model
+model <- plm(Rate ~ G_HELD + G_LEHD + G_LELD + factor(State) + factor(Year) + UE, data = subset_data, effect="individual", model="within")
+
+hypothesis_test <- linearHypothesis(model, c("G_HELD = G_LEHD", "G_HELD = 0"))
+
+print(hypothesis_test)
+
+
+}
+
+
+# Assuming 'data' is your main dataset
+unique_types <- unique(data$Type)
+
+# Loop over unique values in the Type column
+for (type_value in unique_types) {
+
+  # Subsetting the data
+  subset_data <- data[data$Sex == "Female" & data$Type == type_value, ]
+
+ # Check if the subset data is not empty
+  if (nrow(subset_data) > 0) {
+
+    # Running the model with the subsetted data
+  model <- plm(Rate ~ G_HELD + G_LEHD + G_LELD + factor(State) + factor(Year) + UE, data = subset_data, effect="individual", model="within")
+
+    # Getting the tidy summary with confidence intervals
+    summary_table <- tidy(model, conf.int = TRUE)
+
+    # Filter to keep only coefficients from the Group factor variable
+  group_coefficients <- summary_table[grep("G_HELD|G_LEHD|G_LELD", summary_table$term), ]
+
+    # Display the filtered summary table
+    cat("\nType:", type_value, "\n")
+    print(group_coefficients)
+  } else {
+    cat("\nType:", type_value, " - No data available for this type.\n")
+  }
+}
+
+
+
+# Assuming 'data' is your main dataset
+unique_types <- unique(data$Type)
+
+# Loop over unique values in the Type column
+for (type_value in unique_types) {
+
+  # Subsetting the data
+  subset_data <- data[data$Sex == "Male" & data$Type == type_value, ]
+
+    # Running the model with the subsetted data
+# Fit the linear model
+model <- plm(Rate ~ G_HELD + G_LEHD + G_LELD + factor(State) + factor(Year) + UE, data = subset_data, effect="individual", model="within")
+
+hypothesis_test <- linearHypothesis(model, "G_LEHD = G_HELD")
+
+print(hypothesis_test)
+
+
+}
+
+
+
+# Assuming 'data' is your main dataset
+unique_types <- unique(data$Type)
+
+# Loop over unique values in the Type column
+for (type_value in unique_types) {
+
+  # Subsetting the data
+  subset_data <- data[data$Sex == "Male" & data$Type == type_value, ]
+
+    # Running the model with the subsetted data
+# Fit the linear model
+model <- plm(Rate ~ G_HELD + G_LEHD + G_LELD + factor(State) + factor(Year) + UE, data = subset_data, effect="individual", model="within")
+
+hypothesis_test <- linearHypothesis(model, c("G_HELD = G_LEHD"))
+
+print(hypothesis_test)
+
+
+}
+
+# Check the structure of df
+str(df)
+
+
+library(dplyr)
+
+subset_data <- data[data$Sex == "Male", ]
+
+# Calculate statistics for each Sex, Type, and Year combination
+stats_summary <- subset_data %>%
+  dplyr::filter(Year %in% c(2000, 2019)) %>%
+  dplyr::group_by(Type, Year) %>%
+  dplyr::summarise(
+    Mean = mean(Rate, na.rm = TRUE),
+    Median = median(Rate, na.rm = TRUE),
+    IQR = IQR(Rate, na.rm = TRUE),
+    Min = min(Rate, na.rm = TRUE),
+    Max = max(Rate, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(stats_summary)
+
+
+subset_data <- data[data$Sex == "Male", ]
+# Find states with the min and max rates for each year
+min_max_states <- subset_data %>%
+  dplyr::filter(Year %in% c(2000, 2019)) %>%
+  dplyr::group_by(Type, Year) %>%
+  dplyr::summarise(
+    Min_Rate = min(Rate, na.rm = TRUE),
+    Max_Rate = max(Rate, na.rm = TRUE),
+    Min_State = State[which.min(Rate)],
+    Max_State = State[which.max(Rate)],
+    .groups = 'drop'
+  )
+
+print(min_max_states)
+
+subset_data <- data[data$Sex == "Female", ]
+
+# Calculate statistics for each Sex, Type, and Year combination
+stats_summary <- subset_data %>%
+  dplyr::filter(Year %in% c(2000, 2019)) %>%
+  dplyr::group_by(Type, Year) %>%
+  dplyr::summarise(
+    Mean = mean(Rate, na.rm = TRUE),
+    Median = median(Rate, na.rm = TRUE),
+    IQR = IQR(Rate, na.rm = TRUE),
+    Min = min(Rate, na.rm = TRUE),
+    Max = max(Rate, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(stats_summary)
+
+subset_data <- data[data$Sex == "Female", ]
+# Find states with the min and max rates for each year
+min_max_states <- subset_data %>%
+  dplyr::filter(Year %in% c(2000, 2019)) %>%
+  dplyr::group_by(Type, Year) %>%
+  dplyr::summarise(
+    Min_Rate = min(Rate, na.rm = TRUE),
+    Max_Rate = max(Rate, na.rm = TRUE),
+    Min_State = State[which.min(Rate)],
+    Max_State = State[which.max(Rate)],
+    .groups = 'drop'
+  )
+
+print(min_max_states)
+
+subset_data <- data[data$Sex == "Male and female", ]
+
+# Calculate statistics for each Sex, Type, and Year combination
+stats_summary <- subset_data %>%
+  dplyr::filter(Year %in% c(2000, 2019)) %>%
+  dplyr::group_by(Type, Year) %>%
+  dplyr::summarise(
+    Mean = mean(Rate, na.rm = TRUE),
+    Median = median(Rate, na.rm = TRUE),
+    IQR = IQR(Rate, na.rm = TRUE),
+    Min = min(Rate, na.rm = TRUE),
+    Max = max(Rate, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(stats_summary)
+
+
+subset_data <- data[data$Sex == "Male and female", ]
+# Find states with the min and max rates for each year
+min_max_states <- subset_data %>%
+  dplyr::filter(Year %in% c(2000, 2019)) %>%
+  dplyr::group_by(Type, Year) %>%
+  dplyr::summarise(
+    Min_Rate = min(Rate, na.rm = TRUE),
+    Max_Rate = max(Rate, na.rm = TRUE),
+    Min_State = State[which.min(Rate)],
+    Max_State = State[which.max(Rate)],
+    .groups = 'drop'
+  )
+
+print(min_max_states)
